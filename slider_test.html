@@ -1,0 +1,449 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Slider test</title>
+    <script src="https://unpkg.com/jspsych@8.1.0"></script>
+    <script src="https://unpkg.com/@jspsych/plugin-html-button-response@2.0.0"></script>
+    <script src="https://unpkg.com/@jspsych/plugin-survey-text@2.0.0"></script>
+    <script src="https://unpkg.com/@jspsych/plugin-survey-multi-choice@2.0.0"></script>
+    <script src="jspsych-html-slider-response-unlimited.js"></script>
+    <script src="consent_form.js"></script>
+    <script src="debrief.js"></script>
+    <script src="number_instructions.js"></script>
+    <script src="likert_instructions.js"></script>
+    <link href="https://unpkg.com/jspsych@8.1.0/css/jspsych.css" rel="stylesheet" type="text/css" />
+    <style>
+      .sliderimage {
+        border: 2px solid gray;
+      }
+      .heading {
+        font-weight: bold;
+        text-align: center;
+      }
+      #consent_form {
+        width: 80%;
+        justify-self: center;
+        text-align: left;
+      }
+      #debrief {
+        width: 80%;
+        justify-self: center;
+        text-align: left;
+      }
+    </style>
+  </head>
+  <body></body>
+  <script>
+    var sona_id = "";
+
+    const jsPsych = initJsPsych({
+      on_finish: function () {
+        if (sona_id != "") {
+          window.location.assign(
+            'https://universityofedinburgh-ppls.sona-systems.com/webstudy_credit.aspx?experiment_id=958&credit_token=f691b14184834177a598ce0da3da948f&survey_code='+sona_id
+          );
+        }
+      }
+    });
+
+    const url_vars = jsPsych.data.urlVariables();
+    if ("sona_id" in url_vars) {
+      sona_id = url_vars['sona_id'];
+    }
+    var participant_id = jsPsych.randomization.randomID(7);
+    var data_filename = participant_id+"_data.csv";
+    var demographics = {}
+
+    var number_first = true;
+    if (Math.random() < 0.5) {
+      number_first = false;
+    }
+
+
+
+    async function fetch_with_retry(...args) {
+      let count = 0;
+      while(count < 3) {
+          try {
+          let response = await fetch(...args);
+          if (response.status !== 200) {
+              throw new Error("Didn't get 200 Success");
+          }
+          return response;
+          } catch(error) {
+          console.log(error);
+          }
+          count++;
+          await new Promise(x => setTimeout(x, 250));
+      }
+      throw new Error("Too many retries");
+    }
+    
+
+    // save some data (as text) to the filename given
+    async function save_data(name, data_in){
+        var url = 'save_data.php';
+        var data_to_send = {filename: name, filedata: data_in};
+        await fetch_with_retry(url, {
+            method: 'POST',
+            body: JSON.stringify(data_to_send),
+            headers: new Headers({
+                    'Content-Type': 'application/json'
+            })
+        });
+    }
+
+    const hello_trial = {
+      type: jsPsychHtmlButtonResponse,
+      stimulus: consent_html,
+      choices: ["Continue"]
+    }
+
+    const demographics_multi_choice = {
+      type: jsPsychSurveyMultiChoice,
+      questions: [
+        {
+          prompt: "Have you completed a degree, or are you currently completing one?",
+          required: true,
+          options: ["Yes","No"],
+          name: "degree"
+        },
+        {
+          prompt: "Are you a fluent English Speaker? (English does not need to be your native language.)",
+          required: true,
+          options: ["Yes","No"],
+          name: "english"
+        }
+      ],
+      on_finish: function (data) {
+        if (data.response.english == "No") {
+          jsPsych.abortExperiment("Sorry you are not eligible to complete this study as we require participants to be fluent English speakers");
+        } else {
+          demographics = {...demographics, ...(data.response)}
+        }
+      }
+    }
+
+    const demographics_survey_text = {
+      type: jsPsychSurveyText,
+      questions: [
+        {
+          prompt: "What is the subject of your degree? (please write N/A if not applicable to you)",
+          required: true,
+          columns: 70,
+          name: "degree_subject"
+        },
+        {
+          prompt: "What is your age (in years)? ",
+          required: true,
+          columns: 2,
+          name: "age"
+        },
+        {
+          prompt: "What is your gender?",
+          required: true,
+          columns: 70,
+          name: "gender"
+        },
+        {
+          prompt: "What is your nationality?",
+          required: true,
+          columns: 70,
+          name: "nationality"
+        },
+      ],
+      button_label: "Continue and start the experiment",
+      on_finish: function (data) {
+        demographics = {...demographics, ...(data.response)}
+        const csvHeaders = "likert_or_number,participant_id,age, gender, nationality, fluent_english, degree, degree_subject, question_id, priming,response,response_time,scale_size,question_valence, sona_id\n";
+        save_data(data_filename, csvHeaders);
+        
+      }
+    }
+
+    const number_instructions = {
+      type: jsPsychHtmlButtonResponse,
+      stimulus: number_inst,
+      choices: ["Continue"]
+    }
+
+    const likert_instructions = {
+      type: jsPsychHtmlButtonResponse,
+      stimulus: likert_inst,
+      choices: ["Continue"]
+    }
+
+    const questions = [
+      {
+        question_id: 1,
+        question: "<p>When asked how much she liked swimming on this scale, Liv responded strongly disagree.</p> <img src='PLACEHOLDER' width=IMAGE_WIDTH class='sliderimage'> <p>Lilyann likes swimming 2x more than Liv.</p> <p>On the line below indicate where Lilyann would have clicked had she been asked the same question.</p>",
+        scale_point: "Strongly_disagree",
+        question_type: "Positive"
+      },
+
+      {
+        question_id: 2,
+        question: "<p>When asked how much he liked pizza on this scale, Joshua responded neutral.</p> <img src='PLACEHOLDER' width=IMAGE_WIDTH class='sliderimage'> <p> Flora likes pizza 3x more than Joshua.</p> <p>On the line below indicate where Flora would have clicked had she been asked the same question.</p>",
+        scale_point: "Neutral",
+      question_type: "Positive"
+       },
+
+      {
+        question_id: 3,
+        question: "<p>When asked how much she liked ice-skating on this scale, Maddie responded agree.</p> <img src='PLACEHOLDER' width=IMAGE_WIDTH class='sliderimage'> <p> Julia likes ice-skating 1x more than Maddie.</p>  <p>On the line below indicate where Julia would have clicked had she been asked the same question.</p>",
+        scale_point: "Agree",
+        question_type: "Positive"
+      },
+      
+      {
+        question_id: 4,
+        question: "<p>When asked how much he enjoys playing darts on this scale, Shea responded disagree.</p> <img src='PLACEHOLDER' width=IMAGE_WIDTH class='sliderimage'> <p> Johnny likes playing darts 3x more than Shea.</p>  <p>On the line below indicate where Johnny would have clicked had he been asked the same question.</p>",
+        scale_point: "Disagree",
+        question_type: "Positive"
+      },
+
+      {
+        question_id: 5,
+        question: "<p>When asked how much she liked sweets on this scale, Megan responded neutral.</p> <img src='PLACEHOLDER' width=IMAGE_WIDTH class='sliderimage'> <p> Xime likes chocolate 2x more than Megan.</p>  <p>On the line below indicate what her answer would have been if she had been asked the same question.</p>",
+        scale_point: "Neutral",
+        question_type: "Positive"
+      },
+
+      {
+        question_id: 6,
+        question:  "<p>When asked how much he liked watching Chicago P.D. on this scale, Rai responded neutral.</p> <img src='PLACEHOLDER' width=IMAGE_WIDTH class='sliderimage'> <p> Ines likes watching Chicago P.D. 2x more than Rai. </p> <p> On the line below indicate where Ines would have clicked had she been asked the same question.</p>",
+        scale_point: "Neutral",
+        question_type: "Positive"
+      },
+
+      {
+        question_id: 7,
+        question:  "<p>When asked how much he liked hiking on this scale, Jack responded disagree.</p> <img src='PLACEHOLDER' width=IMAGE_WIDTH class='sliderimage'> <p> Luke likes hiking 6x more than Jack.</p> <p> On the line below indicate where Luke would have clicked had he been asked the same question.</p>",
+        scale_point: "Disagree",
+        question_type: "Positive"
+      },
+
+      {
+        question_id: 8,
+        question:  "<p>When asked how much she likes studying economics on this scale, Jaya responded disagree.</p> <img src='PLACEHOLDER' width=IMAGE_WIDTH class='sliderimage'> <p> Jaya likes studying psychology 2x more than economics.</p> <p> On the line below indicate where Jaya would have clicked had she been asked how much she likes studying psychology.</p>",
+        scale_point: "Disagree",
+        question_type: "Positive"
+      },
+
+      {
+        question_id: 9,
+        question: "<p>When asked how much she liked cake on this scale, Alycia responded strongly disagree.</p> <img src='PLACEHOLDER' width=IMAGE_WIDTH class='sliderimage'> <p> Amy likes cake 3x more than Alycia. </p> <p> On the line below indicate where Amy would have clicked had she been asked the same question.</p>",
+        scale_point: "Strongly_disagree",
+        question_type: "Positive"
+      },
+
+      {
+        question_id: 10,
+        question:  "<p>When asked how much she liked singing on this scale, Andrea responded disagree.</p> <img src='PLACEHOLDER' width=IMAGE_WIDTH class='sliderimage'> <p> Alan likes singing 4x more than Andrea. </p> <p> On the line below indicate where Alan would have clicked had he been asked the same question.</p>",
+        scale_point: "Disagree",
+        question_type: "Positive"
+      },
+
+      {
+        question_id: 11,
+        question:  "<p>When asked how much she liked going to the beach on this scale, Lara responded neutral.</p> <img src='PLACEHOLDER' width=IMAGE_WIDTH class='sliderimage'> <p> Lucia likes going to the park 3x more than Lara. </p> <p> On the line below indicate where Lucia would have clicked had she been asked the same question.</p>",
+        scale_point: "Neutral",
+        question_type: "Positive"
+      },
+      
+      {
+        question_id: 12,
+        question:  "<p>When asked how much she liked dogs on on this scale, Ellie responded agree.</p> <img src='PLACEHOLDER' width=IMAGE_WIDTH class='sliderimage'> <p> Isabel likes dogs 1x more than Ellie. </p> <p> On the line below indicate where Isabel would have clicked had she been asked the same question.</p>",
+        scale_point: "Agree",
+        question_type: "Positive"
+      },
+
+      {
+        question_id: 13,
+        question:  "<p>When asked how much he liked partying on this scale, Sam responded strongly disagree.</p> <img src='PLACEHOLDER' width=IMAGE_WIDTH class='sliderimage'> <p> Alex likes partying 3x more than Sam. </p> <p> On the line below indicate where Alex would have clicked had he been asked the same question.</p>",
+        scale_point: "Strongly_disagree",
+        question_type: "Positive"
+      },
+
+      {
+        question_id: 14,
+        question:  "<p>When asked how much he liked shopping on this scale, Bertie responded strongly agree.</p> <img src='PLACEHOLDER' width=IMAGE_WIDTH class='sliderimage'> <p> Lauren likes shopping 2x more than Bertie. </p> <p> On the line below indicate where Lauren would have clicked had she been asked the same question.</p>",
+        scale_point: "Strongly_agree",
+        question_type: "Positive"
+      },
+
+      {
+        question_id: 15,
+        question:   "<p>When asked how much she enjoys autumn on this scale, Amelia responded agree. </p> <img src='PLACEHOLDER' width=IMAGE_WIDTH class='sliderimage'> <p>Kalum likes autumn 1x less than Amelia. </p> <p> On the line below indicate where Kalum would have clicked had he been asked the same question.</p>",
+        scale_point: "Agree",
+        question_type: "Negative"
+      },
+
+      {
+        question_id: 16,
+        question:  "<p>When asked how much she liked cucumber on this scale, Sherry responded strongly agree.</p> <img src='PLACEHOLDER' width=IMAGE_WIDTH class='sliderimage'> <p> Tom likes cucumber 3x less than Sherry. </p> <p> On the line below indicate where Tom would have clicked had he been asked the same question.</p>",
+        scale_point: "Strongly_agree",
+        question_type: "Negative"
+      },
+
+      {
+        question_id: 17,
+        question:  "<p>When asked how much she liked football on this scale, Stella responded neutral.</p> <img src='PLACEHOLDER' width=IMAGE_WIDTH class='sliderimage'> <p> Vicky likes football 2x less than Stella. </p> <p> On the line below indicate where Vicky would have clicked had she been asked the same question.</p>", 
+        scale_point: "Neutral",
+        question_type: "Negative"
+      },
+      
+      {
+        question_id: 18,
+        question:  "<p>When asked how much she liked sushi on this scale, Teresa responded strongly agree.</p> <img src='PLACEHOLDER' width=IMAGE_WIDTH class='sliderimage'> <p> Bea likes sushi 2x less than Teresa. </p> <p> On the line below indicate where Bea would have clicked had she been asked the same question.</p>",
+        scale_point: "Strongly_agree",
+        question_type: "Negative"
+      },
+
+      {
+        question_id: 19,
+        question:  "<p>When asked how much she liked driving on this scale, Elia responded strongly agree.</p> <img src='PLACEHOLDER' width=IMAGE_WIDTH class='sliderimage'> <p> Rosie likes driving 4x less than Elia. </p> <p> On the line below indicate where Rosie would have clicked had she been asked the same question.</p>",
+        scale_point: "Strongly_agree",
+        question_type: "Negative"
+      },
+
+      {
+        question_id: 20,
+        question:  "<p>When asked how much she liked bananas on this scale, Oli responded strongly disagree.</p> <img src='PLACEHOLDER' width=IMAGE_WIDTH class='sliderimage'> <p> Bea likes bananas 1x less than Oli. </p> <p> On the line below indicate where Bea would have clicked had she been asked the same question.</p>",
+        scale_point: "Strongly_disagree",
+        question_type: "Negative"
+      },
+
+      {
+        question_id: 21,
+        question: "<p>When asked how much he liked burgers on this scale, Nico responded agree.</p> <img src='PLACEHOLDER' width=IMAGE_WIDTH class='sliderimage'> <p> Fer likes burgers 3x less than Nico. </p> <p> On the line below indicate where Fer would have clicked had she been asked the same question.</p>",
+        scale_point: "Agree",
+        question_type: "Negative"
+      }
+    ]
+
+    const scales = {
+      "5": ["Strongly disagree", "Disagree", "Neutral", "Agree", "Strongly agree"],
+      "7": ["Strongly disagree", "Disagree", "Slightly disagree", "Neutral", "Slightly agree", "Agree", "Strongly agree"],
+      "9": ["Strongly disagree", "Disagree", "Moderately disagree", "Slightly disagree", "Neutral", "Slightly agree", "Moderately agree", "Agree", "Strongly agree"],
+    };
+
+    const scale_size = jsPsych.randomization.repeat(["5","7","9"], 7);
+
+    var timeline = [];
+    for (const item of questions) {
+      const this_scale_size = scale_size.pop();
+      const image_name = `${item.scale_point}_${this_scale_size}.png`;
+      const question = item.question.replace("PLACEHOLDER", "images/"+image_name).replace("IMAGE_WIDTH", this_scale_size*110);
+      const trial = {
+        type: jsPsychHtmlSliderResponseUnlimited,
+        stimulus: question,
+        prompt: "",
+        labels: scales[this_scale_size],
+        min: 1,
+        max: this_scale_size*1,
+        slider_width: 100*this_scale_size,
+        response_ends_trial: false,
+        on_finish: function(data) {
+          var data_line = ["likert",participant_id,demographics.age, demographics.gender, demographics.nationality, demographics.english,demographics.degree,demographics.degree_subject, item.question_id,number_first,data.response,data.rt,this_scale_size,item.question_type, sona_id].join(",")+"\n";
+          save_data(data_filename, data_line);
+        }
+      };
+      timeline.push(trial);
+    }
+
+    var number_trials = [];
+    const numberquestions =[
+      {
+        question_id: "a",
+        question: "Answer on the scale below: 2 x 3 ="
+      },
+
+      {
+        question_id: "b",
+        question: "Answer on the scale below: 2 x 4 ="
+      },
+      {
+        question_id: "c",
+        question: "Answer on the scale below: 1 x 5 =",
+      },
+      {
+        question_id: "d",
+        question: "Answer on the scale below: 3 x 3 =",
+      },
+      {
+        question_id: "e",
+        question: "Answer on the scale below: 1 x 8 =",
+      },
+      {
+        question_id: "f",
+        question: "Answer on the scale below: 6 /3 ="
+      },
+      {
+        question_id: "g",
+        question: "Answer on the scale below: 4/1 ="
+      },
+      {
+        question_id: "h",
+        question:  "Answer on the scale below: 8/4 ="
+      },
+      {
+        question_id: "i",
+        question:  "Answer on the scale below: 9/3 ="
+      },
+      {
+        question_id: "j",
+        question: "Answer on the scale below: 10/1 ="
+      }
+    
+    ]
+    for (const item of numberquestions) {
+      const trial = {
+        type: jsPsychHtmlSliderResponseUnlimited,
+        stimulus: item.question,
+        prompt: "",
+        labels: [1,2,3,4,5,6,7,8,9,10],
+        min: 1,
+        max: 10,
+        slider_width: 800,
+        response_ends_trial: false,
+        on_finish: function(data) {
+          var data_line = ["number",participant_id,demographics.age, demographics.gender, demographics.nationality, demographics.english,demographics.degree,demographics.degree_subject, item.question_id,number_first,data.response,data.rt,"","",sona_id].join(",")+"\n";
+          save_data(data_filename, data_line);
+        }
+
+      };
+      number_trials.push(trial);
+    }
+
+    var debrief = {
+      type: jsPsychHtmlButtonResponse,
+      stimulus: debrief_text,
+      choices: ["Continue"]
+    }
+
+    number_trials = jsPsych.randomization.repeat(number_trials,1);
+    timeline = jsPsych.randomization.repeat(timeline,1);
+    var full_timeline = [
+      hello_trial,
+      demographics_multi_choice,
+      demographics_survey_text
+    ];
+    if (number_first) {
+      full_timeline.push(number_instructions);
+      full_timeline = full_timeline.concat(number_trials);
+      full_timeline.push(likert_instructions);
+      full_timeline = full_timeline.concat(timeline);
+    } else {
+      full_timeline.push(likert_instructions);
+      full_timeline = full_timeline.concat(timeline);
+      full_timeline.push(number_instructions);
+      full_timeline = full_timeline.concat(number_trials);
+    }
+    full_timeline.push(debrief);
+    jsPsych.run(full_timeline);
+  </script>
+</html>
+
+
+
