@@ -1,0 +1,1837 @@
+---
+title: "Final Dissertation Code"
+author: "Lilyann and Ines"
+date: "2025-03-13"
+output: html_document
+---
+
+```{r loading required packages}
+library(dplyr)
+library(purrr)
+library(tidyr)
+library(tidyverse)
+library(lme4)
+library(knitr)
+library(performance)
+library(ggplot2)
+library(sjPlot)
+library(patchwork)
+library(gt)
+library(kableExtra)
+```
+
+```{r creating folderpath Lily}
+folder_path <- "C:\\Users\\Lilyann Richardson\\OneDrive - University of Edinburgh\\psych\\y4\\Diss\\Data"
+```
+
+\#`{r creating folderpath Ines} folder_path <- "~/Desktop/Data/" #`
+
+```{r creating dataset}
+# Get list of CSV files in the folder
+file_list <- list.files(path = folder_path, pattern = "*.csv", full.names = TRUE)
+
+# Choose the reference file or set the column order explicitly
+reference_file <- read.csv(file_list[1])
+reference_columns <- names(reference_file)
+
+combined_data <- NULL
+
+for (file in file_list) {
+  data <- read.csv(file, row.names = NULL)
+  
+  # Reorder columns to match the reference order
+  data <- data[, match(reference_columns, names(data))]
+  
+  # Bind the rows
+  if (is.null(combined_data)) {
+    combined_data <- data
+  } else {
+    combined_data <- rbind(combined_data, data)
+  }
+}
+```
+
+```{r participant counts pre data cleaning }
+p_counts <- combined_data %>%
+  distinct(participant_id) %>%  
+  summarise(Participant_Count = n())  
+
+```
+
+#Generating correct answers
+```{r creating multiplier column}
+
+combined_data<-combined_data%>%
+  select(-fluent_english, -degree)
+
+
+combined_data$question_id<- as.character(combined_data$question_id)
+combined_data <- combined_data %>%
+
+  mutate(multiplierm = case_when(
+    question_id == 1  ~ 2,
+    question_id == 2  ~ 3,
+    question_id == 3  ~ 1,
+    question_id == 4  ~ 3,
+    question_id == 5  ~ 2,
+    question_id == 6  ~ 2,
+    question_id == 7  ~ 6,
+    question_id == 8  ~ 2,
+    question_id == 9  ~ 3,
+    question_id == 10 ~ 4,
+    question_id == 11 ~ 3,
+    question_id == 12 ~ 1,
+    question_id == 13 ~ 3,
+    question_id == 14 ~ 2,
+    question_id == 15 ~ 1,
+    question_id == 16 ~ 1/3,
+    question_id == 17 ~ 1/2,
+    question_id == 18 ~ 1/2,
+    question_id == 19 ~ 1/4,
+    question_id == 20 ~ 1,
+    question_id == 21 ~ 1/3,
+    
+    question_id == "a" ~ 3,
+    question_id == "b" ~ 4,
+    question_id == "c" ~ 5,
+    question_id == "d" ~ 3,
+    question_id == "e" ~ 8,
+    question_id == "f" ~ 1/3,
+    question_id == "g" ~ 1,
+    question_id == "h" ~ 1/4,
+    question_id == "i" ~ 1/3,
+    question_id == "j" ~ 1,
+
+    TRUE ~ NA_real_  # Default case (if question_id is missing)
+
+  ))
+```
+
+```{r creating location column }
+
+combined_data <- combined_data %>%
+
+  mutate(scale_size = as.numeric(scale_size))
+
+ combined_data <- combined_data %>%
+  mutate(scale_size = case_when(
+    likert_or_number == "number" & is.na(scale_size) ~ 10,  # Assign scale size of 10 for number questions
+    TRUE ~ scale_size  # Keep original values
+  ))
+
+# Assign values to the new column `location`
+
+combined_data <- combined_data %>%
+  mutate(
+    location = case_when(
+      # 1️⃣ Direct assignment of 1
+      question_id %in% c(1, 13, 20, 9,"e", "c") ~ 1,
+
+      # 2️⃣ Direct assignment of 2
+      question_id %in% c(4, 7, 8, 10, "a", "b") ~ 2,
+      question_id %in% c("d") ~ 3,
+      question_id %in% c("f") ~ 6,
+      question_id %in% c("g") ~ 4,
+      question_id %in% c("h") ~ 8,
+
+      # 3️⃣ Location = scale_size
+      question_id %in% c(14, 16, 18, 19, "j") ~ scale_size,
+
+      # 4️⃣ Location = scale_size - 1
+      question_id %in% c(3, 12, 15, 21, "i") ~ scale_size - 1,
+
+      # 5️⃣ Conditional function for specific question_id cases
+      question_id %in% c(2, 5, 6, 11, 17) & scale_size == 9 ~ 5,
+      question_id %in% c(2, 5, 6, 11, 17) & scale_size == 7 ~ 4,
+      question_id %in% c(2, 5, 6, 11, 17) & scale_size == 5 ~ 3,
+
+      # Default case (if none of the conditions match, keep NA)
+      TRUE ~ NA_real_
+    ))
+```
+
+# Formatting of variables of interest
+
+```{r priming formatting}
+# Convert 'priming' to a factor with levels "Priming" and "No Priming"
+combined_data$priming <- factor(combined_data$priming,
+                                levels = c("true", "false"),
+                                labels = c("Priming", "No Priming"))
+```
+
+```{r priming visualisation}
+
+priming_counts <- combined_data %>%
+  group_by(priming, participant_id) %>%
+  summarise(count = n()) %>%
+  group_by(priming) %>%
+  summarise(participant_count = n_distinct(participant_id))
+
+
+kable(priming_counts, caption = "Number of Participants by Priming")
+```
+
+```{r gender formatting}
+combined_data <- combined_data %>%
+  mutate(gender = str_trim(gender),  # Remove leading/trailing spaces
+         gender = case_when(
+           gender %in% c("Female", "female", "Woman") ~ "Female",
+           gender %in% c("Male", "male", "Man", "M") ~ "Male",
+           TRUE ~ gender  # Keep other values as they are
+         ))
+
+gender_counts <- combined_data %>%
+  group_by(gender, participant_id) %>%
+  summarise(count = n()) %>%
+  group_by(gender) %>%
+  summarise(participant_count = n_distinct(participant_id))
+```
+
+```{r age stats}
+
+combined_data$age<-as.numeric(combined_data$age)
+age_stats <- combined_data %>%
+  summarize(
+    mean_age = mean(age, na.rm = TRUE),  
+    age_range = max(age, na.rm = TRUE) - min(age, na.rm = TRUE), 
+    max_age=max(age, na.rm = TRUE),
+    min_age=min(age, na.rm = TRUE),
+    age_sd = sd(age, na.rm = TRUE) 
+  )
+```
+
+```{r nationality formatting}
+
+combined_data <- combined_data %>%
+  mutate(nationality = str_trim(nationality),
+         nationality = str_to_title(nationality),
+         nationality = case_when(
+    nationality %in% c( "American/Argentine","British American","Spanish/ English", "Spanish/English", "Spanish/Algerian","French/Danish", "British/American/Romanian", "America (United States) And British", "Japanese/Turkish", "English/Spanish", "spanish/algerian") ~ "Dual Nationality",
+    
+    nationality %in% c("British", "british", "Britiish", "Scottish British", "Scottish/ British","Scottish", "Scottish British", "Scottish M","Scotish", "Scottis", "White British", "White Scottish", "Welsh", "English", "Uk", "English", "Scottish","White - Irish", "Northern Irish") ~ "UK",
+  nationality %in% c("Spanish","Polish", "Swiss", "Czech", "Italian", "Romanian","Belgian", "Norwegian") ~ "European",
+  nationality %in% c("China", "Chinese", "Hong Kong", "Taiwan", "Indian","Japan", "Sri Lankan", "Malaysian", "Ghanaian","Argentina") ~ "Other",
+    TRUE ~ nationality  # Keep other values as they are
+  ))
+
+nationality_counts <- combined_data %>%
+  distinct(participant_id, nationality) %>%
+  count(nationality)
+```
+
+```{r degree formatting}
+combined_data <- combined_data %>%
+  mutate(degree_subject = str_trim(degree_subject),
+         degree_subject = str_to_title(degree_subject),
+         degree_subject = case_when(
+           degree_subject %in% c("Accounting And Finance", "Ba (Hons) Fashion Marketing", "Marketing And Management", "Hospitality And International Business", "It Management For Business", "Information Technology Management", "International Business And Hospitality", 
+"International Event Management With Marketing", "Law", "Professional Doctorate","Psychology And Business", "Information Technology Management", "Marketing And Management", "Ma International Business") ~ "Business",
+    
+           degree_subject %in% c("Biochemistry", "Biomedical Science", "Biomedicine", "Biosciences", "Chemistry", "Civil Engineering", "Computer Science", "Mathematics","Biology", "Ecology And Conservation", "Mathematics And Physics", "Medicine", "Physiotherapy", "Phd Geology And Geophysics") ~ "STEM",
+    
+           degree_subject %in% c("Classical Studies", "Cognitive Science", "Cognitive Science - Humanities", "French And Classics", "English","English Literature And Linguistics", "English Literature/Medieval Literature", "History", "Human Geography (Ba Geography)","Music Performance", "History And Spanish","Industrial Design & Technology", "Media Studies", "Media And Communication", "Journalism", "Photography", "Ma Hons Scandinavian Studies/Mlitt Creative Writing", "Graphic Design", "Bfa And Msc", "Law And Spanish", "English Literature", "History And Politics", "Product Design") ~ "Art and Humanities",
+    
+           degree_subject %in% c("Criminology And Forensic Psychology", "International Relations","Public Relations", "Politics", "Politics Philosophy And Economics", "Politics And Philosophy", "Social Sciences", "Economics", "Economics With Innovation", "PPE", "Philosophy", "Philosophy & Economics", "Philosophy And Economics", "Philosophy And Politics", "Sociology", "Sociology & Psychology", "Sociology and Psychology", "Sociology/Politics", "Social Anthropology", "Psychology", "Psychology and Business", "Sociology And Psychology", "Sociology And Politics", "Psychology And Economics", "Psychology And Economics", "Psychology Of Mental Health", "Sociology And Politics","Ppe", "Criminology And Forensic Psyxhology", "Ma Sociology And Politics", "Econcomics", "Cognitive Science (Ppls)", "Psychology Bsc") ~ "Social Sciences",
+           
+        degree_subject %in% c("Na", "N/a", "N/A")~"None",    
+    
+           TRUE ~ degree_subject
+         ))
+```
+
+```{r recruitment formatting}
+combined_data<- combined_data%>%
+  group_by(participant_id) %>%  # Group by participant_id to count each participant once
+  mutate(from_sona = ifelse(!is.na(sona_id) & sona_id != "", "Sona", "Not from Sona"))
+```
+
+```{r removing incomplete responses}
+#if responses are incomplete we take this as participants withdrawing themselves from the study 
+combined_data <- combined_data %>%
+  group_by(participant_id) %>%
+  filter(sum(likert_or_number == "likert") >= 21) %>%
+  ungroup()
+
+combined_data <- combined_data %>%
+  group_by(participant_id) %>%
+  filter(sum(likert_or_number == "number") >= 10) %>%
+  ungroup()
+
+```
+
+```{r participant counts }
+post_counts <- combined_data %>%
+  distinct(participant_id) %>%  
+  summarise(Participant_Count = n())
+
+#helps identify number of removed participants
+
+```
+
+```{r removing quick responses}
+quickresponses<-combined_data%>%
+  filter(response_time<1000)
+
+#removing answers from participants that took less than a second
+combined_data<- combined_data%>%
+  filter(response_time>1000)
+
+post_countst <- combined_data %>%
+  distinct(participant_id) %>%  
+  summarise(Participant_Count = n())
+
+```
+
+# Creating the correct answers
+
+```{r anchor 1 multiply answers}
+
+combined_data <- combined_data %>%
+  mutate(correct_answer_a1m = location * multiplierm)
+
+```
+
+```{r anchor 0 multiply answers}
+combined_data <- combined_data %>%
+  mutate(correct_answer_a0m = (location - 1) * multiplierm + 0.01)
+
+```
+
+```{r anchor -3 multiply answers}
+
+#changing the correct answer based on scale size such that "neutral" is always anchored at 0
+combined_data <- combined_data %>%
+  mutate(correct_answer_a3m = case_when(
+    scale_size == 5 ~ ((location - 3) * multiplierm) + 0.001,
+     scale_size == 7 ~ ((location - 4) * multiplierm) + 0.001,
+    scale_size == 9 ~ ((location - 5) * multiplierm) + 0.001,
+  ))
+
+```
+
+#Testing number linearity
+
+```{r number linearity}
+
+numeric_data <- combined_data %>% filter(likert_or_number == "number")
+log_number <- numeric_data %>%
+  group_by(participant_id) %>%
+  do({
+    # Fit linear and log models
+    linear_modeln <- lm(response ~ correct_answer_a1m, data = .)
+    log_modeln <- lm(response ~ log(correct_answer_a1m), data = .) 
+
+    # Compute R² values
+    linear_r2n <- summary(linear_modeln)$r.squared
+    log_r2n <- summary(log_modeln)$r.squared
+
+    # Determine the better-fitting model
+    better_model <- ifelse(linear_r2n > log_r2n, "Linear", "Logarithmic")
+
+    # Return updated dataset
+    cbind(., linear_r2n = linear_r2n, log_r2n = log_r2n, better_modeln = better_model)
+  })
+
+ #any participants who were logarithmic in number were removed from the dataset.
+#Identify participants classified as "Logarithmic" in number
+logarithmic_participants <- log_number %>%
+  filter(better_modeln == "Logarithmic") %>%
+  pull(participant_id)  # Extract participant IDs
+
+#Remove these participants from numeric_data as already separated 
+numeric_data <- numeric_data %>%
+  filter(!participant_id %in% logarithmic_participants)
+
+#Remove these participants from combined_data
+combined_data<-combined_data%>%
+  filter(!participant_id %in% logarithmic_participants)
+
+post_countsn <- combined_data %>%
+  distinct(participant_id) %>%  
+  summarise(Participant_Count = n())
+
+```
+
+```{r plotting number linearity}
+
+#updating R-squared values wihtout non-linear participants
+linear_modeln <- lm(response ~ correct_answer_a1m, data = numeric_data)
+log_modeln <- lm(response ~ log(correct_answer_a1m), data = numeric_data)
+linear_r2n <- summary(linear_modeln)$r.squared
+log_r2n <- summary(log_modeln)$r.squared
+
+
+# Plot the data and add the lines
+ggplot(numeric_data, aes(x = correct_answer_a1m, y = response)) +
+  geom_point(color = "purple", size = 3) +  
+  labs(title = "Figure 3: Linear and Logarithmic Mapping of Numeric Responses for all Participants",
+       x = "Correct Response",
+       y = "Participant Number Task Response") +
+  theme_minimal() +
+  # Add linear regression line
+  geom_smooth(method = "lm", formula = y ~ x, se = FALSE, color = "hotpink") +
+  # Add logarithmic regression line
+  geom_smooth(method = "lm", formula = y ~ log(x), se = FALSE, color = "blue") +
+  geom_smooth(method = "loess", se = FALSE, color = "black", linetype = "dashed") +
+  # Add R-squared values as annotations
+  annotate("text", x = 3, y = 9.5, label = paste("Linear R² = ", round(linear_r2n, 3)), color = "hotpink", size = 5) +
+  annotate("text", x = 3, y = 10, label = paste("Log R² = ", round(log_r2n, 3)), color = "blue", size = 5)
+
+```
+
+#Testing group level Likert linearity
+
+```{r group level linearity assuming anchor 1}
+likert_data <- combined_data %>% filter(likert_or_number == "likert")
+
+# Fit linear model
+linear_model <- lm(response ~ correct_answer_a1m, data = likert_data)
+
+# Fit logarithmic model
+log_model <- lm(response ~ log(correct_answer_a1m), data = likert_data)
+
+# Extract R-squared values
+linear_r2 <- summary(linear_model)$r.squared
+log_r2 <- summary(log_model)$r.squared
+
+# Plot the data and add the lines
+anchor1plot<-ggplot(likert_data, aes(x = correct_answer_a1m, y = response)) +
+  geom_point(color = "purple", size = 3) +  
+  labs(x = "Correct Response (Anchor 1)",
+       y = "Participant Likert Scale Response") +
+  theme_minimal() +
+  ggtitle("a) Linear and Logarithmic Mapping of All Participant Likert Responses with Anchor 1") +
+  theme(plot.title = element_text(size = 10)) +
+  # Add linear regression line
+  geom_smooth(method = "lm", formula = y ~ x, se = FALSE, color = "hotpink") +
+  # Add logarithmic regression line
+  geom_smooth(method = "lm", formula = y ~ log(x), se = FALSE, color = "blue") +
+  geom_smooth(method = "loess", se = FALSE, color = "black", linetype = "dashed") +
+  # Add R-squared values as annotations
+  annotate("text", x = 16, y = 1, label = paste("Linear R² = ", round(linear_r2, 3)), color = "hotpink", size = 5) +
+  annotate("text", x = 16, y = 0, label = paste("Log R² = ", round(log_r2, 3)), color = "blue", size = 5) 
+
+
+AIC(linear_model, log_model)
+BIC(linear_model, log_model)
+
+
+```
+The log model for Likert data has a significantly lower AIC and BIC indicating a better fit. 
+
+
+```{r group level linearity assuming anchor 0}
+
+# Fit linear model
+linear_model0 <- lm(response ~ correct_answer_a0m, data = likert_data)
+
+# Fit logarithmic model
+log_model0 <- lm(response ~ log(correct_answer_a0m), data = likert_data)
+
+# Extract R-squared values
+linear_r20 <- summary(linear_model0)$r.squared
+log_r20 <- summary(log_model0)$r.squared
+
+# Plot the data and add the lines
+anchor0plot<-ggplot(likert_data, aes(x = correct_answer_a0m, y = response)) +
+  geom_point(color = "purple", size = 3) +  
+  labs(x = "Correct Response (Anchor 0)",
+       y = "Participant Likert Scale Response") +
+  theme_minimal() +
+    ggtitle("b) Linear and Logarithmic Mapping of All Participant Likert Responses with Anchor 0") +
+  theme(plot.title = element_text(size = 10)) +
+  # Add linear regression line
+  geom_smooth(method = "lm", formula = y ~ x, se = FALSE, color = "hotpink") +
+  # Add logarithmic regression line
+  geom_smooth(method = "lm", formula = y ~ log(x), se = FALSE, color = "blue") +
+  geom_smooth(method = "loess", se = FALSE, color = "black", linetype = "dashed") +
+  # Add R-squared values as annotations
+  annotate("text", x = 14, y = 1, label = paste("Linear R² = ", round(linear_r20, 3)), color = "hotpink", size = 5) +
+  annotate("text", x = 14, y = 0, label = paste("Log R² = ", round(log_r20, 3)), color = "blue", size = 5) 
+
+
+AIC(linear_model0, linear_model)
+AIC(log_model0, log_model)
+
+anchor1plot|anchor0plot #need to fix formatting 
+```
+This plot and the AIC/BIC values for the linear and log models depending on anchor indicate a better fit for both models assuming an anchor of 1. We can see in the anchor 1 model that overall the log model fits better therefore should look into individuals and whether they represent Likert scales more linearly or more logarithmically and whether individually speaking different anchors represent their answers better. 
+
+#Identifying participant anchors
+
+
+```{r generating r2 values for linear/log w/ a1, message=FALSE, error=FALSE}
+likert_data <- likert_data %>%
+  group_by(participant_id) %>%
+    do({
+    # Fit linear model
+    linear_model_a1 <- lm(response ~ correct_answer_a1m, data = .)
+    # Fit logarithmic model
+    log_model_a1 <- lm(response ~ log(correct_answer_a1m), data = .)
+    
+    # Calculate R-squared for both models
+    linear_r2_a1 <- summary(linear_model_a1)$r.squared
+    log_r2_a1 <- summary(log_model_a1)$r.squared
+    
+    # Return the dataset with the new column
+    cbind(., linear_r2_a1 = linear_r2_a1, log_r2_a1 = log_r2_a1)
+    
+    }) 
+```
+
+```{r generating r2 values for linear/log w/ a0, message=FALSE, error=FALSE}
+likert_data <- likert_data %>%
+  group_by(participant_id) %>%
+    do({
+    # Fit linear model
+    linear_model_a0 <- lm(response ~ correct_answer_a0m, data = .)
+    # Fit logarithmic model
+    log_model_a0 <- lm(response ~ log(correct_answer_a0m), data = .)
+    
+    # Calculate R-squared for both models
+    linear_r2_a0 <- summary(linear_model_a0)$r.squared
+    log_r2_a0 <- summary(log_model_a0)$r.squared
+    
+    # Return the dataset with the new column
+    cbind(., linear_r2_a0 = linear_r2_a0, log_r2_a0 = log_r2_a0)
+  }) 
+```
+
+```{r generating r2 values for linear/log w/ a-3, message=FALSE, error=FALSE}
+likert_data <- likert_data %>%
+  group_by(participant_id) %>%
+    do({
+      # Transform correct_answer_a3m: log(abs(x)) + negative indicator
+    transformed_a3m <- ifelse(.$correct_answer_a3m < 0, 
+                              -log(abs(.$correct_answer_a3m)), 
+                              .$correct_answer_a3m)
+    
+    # Fit linear model
+    linear_model_a3 <- lm(response ~ correct_answer_a3m, data = .)
+    
+    # Fit logarithmic model using transformed values
+    log_model_a3 <- lm(response ~ transformed_a3m, data = .)
+    
+    # Calculate R-squared for both models
+    linear_r2_a3 <- summary(linear_model_a3)$r.squared
+    log_r2_a3 <- summary(log_model_a3)$r.squared
+    
+    # Return dataset with new columns
+    cbind(., linear_r2_a3 = linear_r2_a3, log_r2_a3 = log_r2_a3)
+  })
+```
+
+```{r categorising model with highest r2}
+likert_data <- likert_data %>%
+  mutate(
+    # Find the highest R² value across all models
+    max_r2 = pmax(linear_r2_a1, log_r2_a1, linear_r2_a0, log_r2_a0,linear_r2_a3, log_r2_a3, na.rm = TRUE),
+    
+    # Determine the overall best model
+    better_model = case_when(
+      max_r2 == linear_r2_a1 ~ "Linear a1",
+      max_r2 == log_r2_a1 ~ "Logarithmic a1",
+      max_r2 == linear_r2_a0 ~ "Linear a0",
+      max_r2 == log_r2_a0 ~ "Logarithmic a0",
+      max_r2 == linear_r2_a3 ~ "Linear a3",
+      max_r2 == log_r2_a3 ~ "Logarithmic a3",
+      TRUE ~ NA_character_  # Handle cases where all values are NA
+    )
+  )
+
+```
+
+```{r categorising anchor}
+likert_data <- likert_data %>%
+  mutate(
+    # Calculate anchor based on highest linear r2 to give best chance of being linear
+   max_linear_r2 = pmax(linear_r2_a1, linear_r2_a0,linear_r2_a3, na.rm = TRUE),
+    
+    # Determine the overall best model based on the highest sum of R²
+    anchor = case_when(
+      max_linear_r2 == linear_r2_a1 ~ "a1",
+      max_linear_r2 == linear_r2_a0 ~ "a0",
+      max_linear_r2 == linear_r2_a3 ~ "a3",
+      TRUE ~ NA_character_  # Handle cases where all values are NA
+    )
+  )
+
+```
+
+
+```{r correct r squared for best anchor}
+likert_data <- likert_data %>%
+  mutate(
+    linear_r2ba = case_when(
+      anchor == "a1" ~ linear_r2_a1,
+      anchor == "a3" ~ linear_r2_a3,
+      anchor == "a0" ~ linear_r2_a0,),
+    log_r2ba = case_when(
+      anchor == "a1" ~ log_r2_a1,
+      anchor == "a0" ~ log_r2_a0,
+      anchor == "a3" ~ log_r2_a3,
+    ))
+```
+
+```{r assign correct answer based on anchor}
+likert_data <- likert_data %>%
+  mutate(correct_answer = case_when(
+    anchor %in% "a0" ~ correct_answer_a0m,
+    anchor %in% "a1"~ correct_answer_a1m, 
+    anchor %in% "a3"~ correct_answer_a3m))
+```
+
+```{r removing columns no longer needed}
+
+likert_data<- likert_data%>%
+  select(-linear_r2_a1, -linear_r2_a0, -linear_r2_a3, -log_r2_a1, -log_r2_a0, -log_r2_a3)
+```
+
+```{r anchor visualisation}
+
+anchor_counts <- likert_data %>%
+  distinct(participant_id, anchor) %>%  # Keep unique participant-anchor pairs
+  group_by(anchor) %>%  # Group by anchor
+  summarise(Participant_Count = n()) %>%  # Count unique participants per anchor
+  complete(anchor = c("a0", "a1", "a3"), fill = list(Participant_Count = 0))  
+
+
+df_anchor_counts <- as.data.frame(anchor_counts)  # Convert to data frame
+
+df_anchor_counts %>%
+  gt() %>%
+  tab_header(
+    title = md("**Table 1: Count of Participant Anchors**")
+  ) %>%
+  cols_label(
+    anchor = "Participant Anchor",
+    Participant_Count = "Count"
+  )
+```
+
+#Identifying linearity of participants: Binary variables
+
+```{r categorising participants: log vs. linear}
+likert_data <- likert_data %>%
+  mutate(
+    type = case_when(
+      better_model %in% c("Logarithmic a0", "Logarithmic a1","Logarithmic a3") ~ "Logarithmic",
+      better_model %in% c("Linear a0", "Linear a1", "Linear a3") ~ "Linear",
+      TRUE ~ NA_character_  # Assigns NA if none of the conditions match
+    )
+  )
+```
+
+```{r chi square log vs linear}
+
+participant_type <- likert_data %>%
+  group_by(participant_id) %>%
+  summarise(type = first(type))  # Ensures only one categorization per participant
+
+table_type <-  table(participant_type$type)
+
+df_table_type <- as.data.frame(table_type)  # Convert to data frame
+
+chisquarell <- chisq.test(table_type)
+ 
+df_table_type %>%
+  gt() %>%
+  tab_header(
+    title = md("**Table 1: Count of Participant Response Representation**")
+  ) %>%
+  cols_label(
+    Var1 = "Response Representation",
+    Freq = "Count"
+  )
+
+chisquarell
+```
+
+
+```{r chi squared comparing linear vs. log and priming vs no priming using}
+
+# Ensure each participant is counted only once
+contingency_data <- likert_data %>%
+  group_by(participant_id) %>%
+  summarise(
+    type = first(type),  # Use `first()` to keep one value per participant
+    priming = first(priming)  # Ensure priming condition is only counted once
+  ) %>%
+  ungroup()
+
+# Create a contingency table
+contingency_table <- table(contingency_data$type, contingency_data$priming)
+
+# Perform the Chi-squared test
+chi_squared_result <- chisq.test(contingency_table)
+contingency_table
+chi_squared_result
+
+df_contingency_data <- as.data.frame(contingency_table)
+df_contingency_data <- df_contingency_data %>%
+  pivot_wider(names_from = Var1, values_from = Freq, values_fill = list(Freq = 0))
+
+colnames(df_contingency_data)[1] <- "Priming Condition"
+
+df_contingency_data %>%
+  gt() %>%
+  tab_header(
+    title = md("**Table 2: Count of Participant Response Representation Across Priming Conditions**")
+  ) 
+
+chisq.test(contingency_table)
+```
+Chi-square test indicates priming does not determine linearity of participant responses. This suggests participants do not associate Likert tasks with number lines. This chi square indicates priming does not influence whether someone performs Likert tasks more linearly or more logarithmically.
+
+#Regression to test outcome variable 2
+
+
+```{r changing factor levels}
+
+likert_data$scale_size <- factor(likert_data$scale_size, levels = c(5, 7, 9))
+
+likert_data$scale_size <- relevel(factor(likert_data$scale_size), ref = "5")
+
+likert_data$anchor <- factor(likert_data$anchor, levels = c("a0", "a1", "a3"))
+
+likert_data$anchor <- relevel(factor(likert_data$anchor), ref = "a1")
+
+likert_data$degree_subject <- relevel(factor(likert_data$degree_subject), ref = "None")
+
+likert_data$question_valence <- relevel(factor(likert_data$question_valence), ref = "Positive")
+
+likert_data$nationality <- relevel(factor(likert_data$nationality), ref = "UK")
+
+likert_data$priming <- relevel(factor(likert_data$priming), ref = "No Priming")
+
+likert_data$from_sona <- relevel(factor(likert_data$from_sona), ref = "Not from Sona")
+
+likert_data$age<- as.numeric(likert_data$age)
+```
+
+```{r creating outcome variable}
+#distance between response and correct answer will be our outcome variable
+
+likert_data<- likert_data%>%
+  mutate(distance= abs(response-correct_answer_a1m))
+```
+
+```{r creating regression dataset}
+likert_data_regression <- likert_data %>% select(participant_id, age, gender, degree_subject, from_sona, priming, response, scale_size, question_valence, correct_answer, anchor, nationality, distance)
+```
+
+
+
+```{r removing distance outliers}
+
+distance_mean <- mean(likert_data_regression$distance, na.rm = TRUE)
+distance_sd <- sd(likert_data_regression$distance, na.rm = TRUE)
+
+filterdata_regression <- likert_data_regression %>%
+  filter(abs(distance - distance_mean) > 3 * distance_sd)
+
+# Filter data to exclude extreme values
+likert_data_regression <- likert_data_regression %>%
+  filter(abs(distance - distance_mean) <= 3 * distance_sd)
+
+#removes 30 observations
+#removing participant as 6 outlying observations
+
+likert_data_regression <- likert_data_regression %>%
+  filter(participant_id != "ag1p7rv") %>%  # Exclude participant
+  ungroup()
+
+likert_data <- likert_data %>% # Exclude participant from main dataframe too
+  filter(participant_id != "ag1p7rv") %>%  
+  ungroup()
+
+```
+
+```{r exploration regression best anchor w/ multi-level model for participant}
+
+regression_m1full <- lmer(distance ~ age + gender+ nationality + degree_subject + from_sona + priming + scale_size + question_valence + 
+                  priming*scale_size + priming*question_valence + scale_size*question_valence  + scale_size*question_valence*priming+(1|scale_size/participant_id), 
+                data=likert_data_regression)
+
+#summary(regression_m1full)
+
+```
+
+We first created a full multilevel model with all covariates, independent variables and interaction effects of interest. This model displayed no random effects for participants indicating participants didn't change their answers given their previous answers.Therefore in future models we removed this random effect. We used a multilevel model first to see if there was any variation in responses depending on the participant. 
+
+```{r exploration regression best anchor w/ multi-level model no random participant}
+
+regression_m2 <- lmer(distance ~ age + gender + nationality + degree_subject + from_sona + priming + scale_size + question_valence+ priming*scale_size + priming*question_valence +scale_size*question_valence + scale_size*question_valence*priming+ (1|scale_size), 
+                data=likert_data_regression)
+
+#summary(regression_m2)
+
+```
+This multilevel model shows that responses vary slightly depending on the scale size. The relatively small variance in the random effect for scale_size (0.1947) suggests that scale size has only a small impact on the response variation after accounting for the fixed effects.
+
+```{r model comparisons}
+comparison1<-AIC(regression_m1full, regression_m2)
+```
+
+```{r generating final model process}
+library(lmerTest)
+
+regression_m3 <- lmer(distance ~ gender + nationality + degree_subject + from_sona + priming + scale_size + question_valence+ priming*scale_size + priming*question_valence +scale_size*question_valence + scale_size*question_valence*priming+ (1|scale_size), 
+                data=likert_data_regression)
+
+
+comparison2<-AIC(regression_m2, regression_m3)
+
+regression_m4 <- lmer(distance ~ nationality + degree_subject + from_sona + priming + scale_size + question_valence+ priming*scale_size + priming*question_valence +scale_size*question_valence + scale_size*question_valence*priming+ (1|scale_size), 
+                data=likert_data_regression)
+
+comparison3<-AIC(regression_m3, regression_m4)
+
+regression_m5 <- lmer(distance ~ degree_subject + from_sona + priming + scale_size + question_valence+ priming*scale_size + priming*question_valence +scale_size*question_valence + scale_size*question_valence*priming+ (1|scale_size), 
+                data=likert_data_regression)
+
+comparison4<-AIC(regression_m4, regression_m5)
+
+regression_m6 <- lmer(distance ~ from_sona + priming + scale_size + question_valence+ priming*scale_size + priming*question_valence +scale_size*question_valence + scale_size*question_valence*priming+ (1|scale_size), 
+                data=likert_data_regression)
+
+comparison5<-AIC(regression_m5, regression_m6)
+
+regression_m7 <- lmer(distance ~  priming + scale_size + question_valence+ priming*scale_size + priming*question_valence +scale_size*question_valence + scale_size*question_valence*priming+ (1|scale_size), 
+                data=likert_data_regression)
+
+comparison6<-AIC(regression_m6, regression_m7)
+
+regression_m8 <- lmer(distance ~ priming+ scale_size + question_valence+ priming*question_valence +scale_size*question_valence + scale_size*question_valence*priming+ (1|scale_size), 
+                data=likert_data_regression)
+
+comparison7<-AIC(regression_m7, regression_m8)
+
+regression_m9 <- lmer(distance ~ priming+ scale_size + question_valence+ scale_size*question_valence + scale_size*question_valence*priming+ (1|scale_size), 
+                data=likert_data_regression)
+
+comparison8<-AIC(regression_m8, regression_m9)
+
+regression_m10 <- lmer(distance ~ priming+ scale_size + question_valence + scale_size*question_valence*priming+ (1|scale_size), 
+                data=likert_data_regression)
+
+comparison9<-AIC(regression_m9, regression_m10)
+
+regression_m11 <- lmer(distance ~ priming+ scale_size + question_valence + (1|scale_size), 
+                data=likert_data_regression)
+
+comparison10<-AIC(regression_m10, regression_m11)
+
+regression_m12 <- lmer(distance ~ scale_size + question_valence + (1|scale_size), 
+                data=likert_data_regression)
+
+comparison11<-AIC(regression_m11, regression_m12)
+
+regression_m13 <- lmer(distance ~  question_valence + (1|scale_size), 
+                data=likert_data_regression)
+
+comparison12<-AIC(regression_m12, regression_m13)
+
+regression_m14 <- lmer(distance ~ (1|scale_size), 
+                data=likert_data_regression)
+
+comparison13<-AIC(regression_m13, regression_m14)
+
+```
+
+```{r final multilevel model}
+regression_mfinal <- lmer(distance ~ question_valence + (1|scale_size), 
+                data=likert_data_regression)
+```
+
+```{r final linear model}
+#creating a regression without multilevel effects
+
+regression_final <- lm(distance~question_valence, 
+                data=likert_data_regression)
+```
+
+```{r comparing regression models }
+AIC(regression_mfinal, regression_final)
+```
+When comparing the multilevel regression and the standard linear regression there is a better fit using the multilevel (AIC= 9100.867 vs 9138.238) therefore the final model is a multilevel model with question valence and the random effect of scale length on distance. 
+
+```{r regression summary visualisation}
+
+#In Appendix 
+
+tab_model(regression_m1full,
+          show.stat=TRUE,
+          dv.labels =c( "Full Multilevel Model with Participant Random Effects"),
+          title="Appendix Table 1: Regression Table 1",
+ pred.labels=c("Intercept","Age","Male", "Dual Nationality", "European", "Other Nationality", "Arts & Humanities Degree","Business Degree", "Social Sciences Degree", "STEM Degree", "Recruitment:SONA", "Priming", "Scale Size:7", "Scale Size:9", "Negative Valence", "Priming * Scale Size:7",  "Priming * Scale Size:9", "Priming * Negative Valence", "Negative Valence * Scale Size:7", "Negative Valence * Scale Size:9", "Priming * Negative Valence * Scale Size:7", "Priming * Negative Valence * Scale Size:9" ),
+ digits=3)
+```
+
+```{r regression summary final model visualisation}
+
+tab_model(regression_mfinal,
+          show.stat=TRUE,
+          dv.labels =c( "Final Model"),
+          title="Appendix Table 2: Regression Table for Final Multilevel Model Assessing Linearity",
+ pred.labels=c("Intercept", "Negative Valence"),
+ digits=3)
+```
+
+```{r reporting stepwise process}
+
+# Create a dataframe summarizing the model selection process
+model_selection <- data.frame(
+  Model = c("M1 (Full Model)", "M2", "M3", "M4", "M5", "M6", "M7", "M8", "M9", "M10", "M11", "M12", "M13(Final Model)"),
+  Removed_Term = c(
+    "None (Full Model)", 
+    "Removed Random effect of participant id",
+    "Removed Age",
+    "Removed Gender",
+    "Removed Nationality",
+    "Removed Degree subject",
+    "Removed Recruitment",
+    "Removed Priming × Scale size",
+    "Removed Priming × Question valence",
+    "Removed Scale size × Question valence",
+    "Removed Scale size × Question valence × Priming",
+    "Removed Priming",
+    "Removed Scale size"
+  ),
+  AIC = c(
+    AIC(regression_m1full),
+    AIC(regression_m2),
+    AIC(regression_m3),
+    AIC(regression_m4),
+    AIC(regression_m5),
+    AIC(regression_m6),
+    AIC(regression_m7),
+    AIC(regression_m8),
+    AIC(regression_m9),
+    AIC(regression_m10),
+    AIC(regression_m11),
+    AIC(regression_m12),
+    AIC(regression_m13)
+  )
+)
+
+
+kable(model_selection, caption = "Appendix Table 3: Stepwise Model Selection Based on AIC")
+
+
+
+```
+
+Model reduction was stopped at Model 13, as further removal of variables (e.g., question valence) resulted in a higher AIC, indicating a worse model fit.
+
+
+## Analysis Models
+```{r final multilevel analysis model}
+regression_mfinalanal <- lmer(distance ~ priming + scale_size + question_valence + (1|scale_size), 
+                data=likert_data_regression)
+```
+
+```{r final linear analysis model}
+regression_finalanal <- lm(distance ~ priming + scale_size + question_valence, 
+                data=likert_data_regression)
+
+
+summary(regression_finalanal)
+```
+
+```{r comparing analysis models}
+
+AIC(regression_mfinalanal, regression_finalanal)
+
+```
+Better AIC without the multilevel model (9088.225 vs 9106.013 therefore final analysis model without random effect of scale length).
+```{r regression summary visualisation}
+
+tab_model(regression_finalanal,
+          show.stat=TRUE,
+          dv.labels =c( "Final Analysis Model"),
+          title="Table 3: Regression Table for Linear Model Assessing Linearity",
+ pred.labels=c("Intercept", "Priming", "Scale Size:7", "Scale Size:9", "Negative Valence"),
+ digits=3)
+```
+
+#Log regression to test outcome variable 2
+
+This is to look at what makes people more or less log
+
+```{r correct log answers a1}
+
+likert_datalog <- likert_data %>%
+
+  mutate(correct_log_answer_a1 = log(correct_answer_a1m))
+
+```
+
+```{r correct log answers a0}
+
+likert_datalog <- likert_datalog %>%
+
+  mutate(correct_log_answer_a0 = log(correct_answer_a0m))
+
+```
+
+We did not include correct log answers for anchor 3 as only one participant was represented by this anchor. 
+
+```{r assign correct answers based on anchor}
+
+likert_datalog <- likert_datalog %>%
+
+  mutate(log_correct_answer = case_when(
+
+    anchor %in% "a0" ~ correct_log_answer_a0,
+
+    anchor %in% "a1"~ correct_log_answer_a1))
+
+```
+
+```{r creating outcome variable (distance)}
+
+#distance between response and correct answer will be our outcome variable
+
+likert_datalog<- likert_datalog%>%
+
+  mutate(distance_log= abs(response-log_correct_answer))
+
+```
+
+
+```{r creating smaller df for log regression}
+
+likert_data_regression_log <- likert_datalog %>% select(participant_id, age, gender, degree_subject, from_sona, priming, response, scale_size, question_valence, log_correct_answer, anchor, nationality, distance_log)
+
+```
+
+```{r removing outliers}
+
+distance_log_mean <- mean(likert_data_regression_log$distance_log, na.rm = TRUE)
+distance_log_sd <- sd(likert_data_regression_log$distance_log, na.rm = TRUE)
+
+# Filter data to exclude extreme values
+likert_data_regression_log <- likert_data_regression_log %>%
+  filter(abs(distance_log - distance_log_mean) <= 3 * distance_sd)
+
+```
+
+Generated a logarithmically transformed linear model to assess the difference in model from the linear model.
+
+```{r final analysis log regression}
+
+regression_log <- lm( distance_log ~ priming + scale_size + question_valence,
+  data = likert_data_regression_log)
+
+summary(regression_log)
+
+```
+
+```{r comparing log and linear analysis regression models}
+AIC(regression_log, regression_finalanal)
+```
+
+These AIC values indicate the logarithmically transformed linear model is better at explaining variation in distance between participant responses and correct answers. AIC= 7956.093 vs 9088.225. Multiple R-squared:  0.3146,	Adjusted R-squared:  0.3133 
+F-statistic:   245 on 4 and 2135 DF,  p-value: < 2.2e-16
+
+
+```{r regression summary visualisation}
+
+tab_model(regression_log,
+          show.stat=TRUE,
+          dv.labels =c("Logarithmically Transformed Analysis Model"),
+          title="Appendix Table 4: Regression Table for Logarithmically transformed Model",
+ pred.labels=c("Intercept", "Priming", "Scale Size:7", "Scale Size:9", "Negative Valence"),
+ digits=3)
+```
+
+------------------------------------------------------------------------
+
+#Further exploring Scale Size
+
+We can tell scale size significantly predicts distance between response and correct answer as a measure of linearity. An increase in scale size leads to an increase in distance between response and the correct answer. Therefore going to investigate further.
+
+##Scale Length 5
+
+```{r df for linear vs. log model scale length 5 a1, a0}
+r2_5 <- likert_data %>%
+  filter(scale_size == 5) %>%
+  group_by(participant_id) %>%
+  do({
+  
+    # Fit model for a1
+    linear_model_5a1 <- lm(response ~ correct_answer_a1m, data = .)
+    log_model_5a1 <- lm(response ~ log(correct_answer_a1m), data = .)
+    
+     # Fit model for a0
+    linear_model_5a0 <- lm(response ~ correct_answer_a0m, data = .)
+    log_model_5a0 <- lm(response ~ log(correct_answer_a0m), data = .)
+    
+    #Formatting a3
+    transformed_a3m <- ifelse(.$correct_answer_a3m < 0, 
+                              -log(abs(.$correct_answer_a3m)), 
+                              .$correct_answer_a3m)
+    # Fit model for a3
+    linear_model_5a3 <- lm(response ~ correct_answer_a3m, data = .)
+    log_model_5a3 <- lm(response ~ transformed_a3m, data = .)
+    
+    # Extract R-squared values
+    data.frame(
+      scale_size = 5,
+      linear_r2_5_a1 = summary(linear_model_5a1)$r.squared,
+      log_r2_5_a1 = summary(log_model_5a1)$r.squared,
+      
+      linear_r2_5_a0 = summary(linear_model_5a0)$r.squared,
+      log_r2_5_a0 = summary(log_model_5a0)$r.squared,
+      
+      linear_r2_5_a3 = summary(linear_model_5a3)$r.squared,
+      log_r2_5_a3 = summary(log_model_5a3)$r.squared
+    )
+  }) %>%
+  ungroup()  # Remove grouping
+```
+
+```{r categorising model with highest r2 for scale length 5}
+r2_5 <- r2_5 %>%
+  mutate(
+    # Find the highest R² value across all models
+    max_r2 = pmax(linear_r2_5_a1, log_r2_5_a1, linear_r2_5_a0, log_r2_5_a0, linear_r2_5_a3, log_r2_5_a3,  na.rm = TRUE),
+    
+    # Determine the overall best model
+    overall_better_model_5 = case_when(
+      max_r2 == linear_r2_5_a1 ~ "Linear a1",
+      max_r2 == log_r2_5_a1 ~ "Logarithmic a1",
+      max_r2 == linear_r2_5_a0 ~ "Linear a0",
+      max_r2 == log_r2_5_a0 ~ "Logarithmic a0",
+      max_r2 == linear_r2_5_a3 ~ "Linear a3",
+      max_r2 == log_r2_5_a3 ~ "Logarithmic a3",
+      
+      TRUE ~ NA_character_  # Handle cases where all values are NA
+    )
+  ) %>%
+  select(-max_r2) 
+```
+
+```{r categorising anchor for scale 5}
+r2_5 <- r2_5 %>%
+  mutate(
+    
+    # Find the highest sum of R² across all models
+    max_linear_r2_5 = pmax(linear_r2_5_a1, linear_r2_5_a0, linear_r2_5_a3, na.rm = TRUE),
+    
+    # Determine the overall best model based on the highest sum of R²
+    anchor_5 = case_when(
+      max_linear_r2_5 == linear_r2_5_a1 ~ "a1",
+      max_linear_r2_5 == linear_r2_5_a0 ~ "a0",
+      max_linear_r2_5 == linear_r2_5_a3 ~ "a3",
+      TRUE ~ NA_character_  # Handle cases where all values are NA
+    )
+  )
+
+```
+
+```{r correct r squared for best anchor 5}
+r2_5 <- r2_5 %>%
+  mutate(
+    linear_r2_5 = case_when(
+      anchor_5 == "a1" ~ linear_r2_5_a1,
+      anchor_5 == "a3" ~ linear_r2_5_a3,
+      anchor_5 == "a0" ~ linear_r2_5_a0,),
+    log_r2_5 = case_when(
+      anchor_5 == "a1" ~ log_r2_5_a1,
+      anchor_5 == "a0" ~ log_r2_5_a0,
+      anchor_5 == "a3" ~ log_r2_5_a3,
+    ))
+```
+
+```{r scale length 5}
+likert_data_5 <- likert_data %>% filter( scale_size == 5)
+```
+
+```{r df w/ linear vs. log model scale length 5,7,9}
+merged_5df <- left_join(likert_data_5, r2_5, by  = "participant_id")
+```
+
+```{r formatting df}
+merged_5df <- merged_5df %>%
+  select(participant_id, age, gender, nationality, degree_subject, priming, scale_size.x, from_sona, question_valence,  anchor_5, correct_answer_a1m, correct_answer_a0m, correct_answer_a3m, response, overall_better_model_5)
+```
+
+```{r assign correct answer based on anchor}
+merged_5df <- merged_5df %>%
+  mutate(correct_answer = case_when(
+    anchor_5 %in% "a0" ~ correct_answer_a0m,
+    anchor_5 %in% "a1"~ correct_answer_a1m,
+    anchor_5 %in% "a3" ~ correct_answer_a3m))
+```
+
+##Scale Length 7
+
+```{r df for linear vs. log model scale length 7 a1, a0, a3}
+r2_7 <- likert_data %>%
+  filter(likert_or_number == "likert", scale_size == 7) %>%
+  group_by(participant_id) %>%
+  do({
+  
+    # Fit model for a1
+    linear_model_7a1 <- lm(response ~ correct_answer_a1m, data = .)
+    log_model_7a1 <- lm(response ~ log(correct_answer_a1m), data = .)
+    
+     # Fit model for a0
+    linear_model_7a0 <- lm(response ~ correct_answer_a0m, data = .)
+    log_model_7a0 <- lm(response ~ log(correct_answer_a0m), data = .)
+    
+    #Formatting a3
+    transformed_a3m <- ifelse(.$correct_answer_a3m < 0, 
+                              -log(abs(.$correct_answer_a3m)), 
+                              .$correct_answer_a3m)
+    # Fit model for a3
+    linear_model_7a3 <- lm(response ~ correct_answer_a3m, data = .)
+    log_model_7a3 <- lm(response ~ transformed_a3m, data = .)
+    
+    # Extract R-squared values
+    data.frame(
+      scale_size = 7,
+      linear_r2_7_a1 = summary(linear_model_7a1)$r.squared,
+      log_r2_7_a1 = summary(log_model_7a1)$r.squared,
+      
+      linear_r2_7_a0 = summary(linear_model_7a0)$r.squared,
+      log_r2_7_a0 = summary(log_model_7a0)$r.squared,
+      
+      linear_r2_7_a3 = summary(linear_model_7a3)$r.squared,
+      log_r2_7_a3 = summary(log_model_7a3)$r.squared
+    )
+  }) %>%
+  ungroup()  # Remove grouping
+```
+
+```{r categorising model with highest r2 for scale length 7}
+r2_7 <- r2_7 %>%
+  mutate(
+    # Find the highest R² value across all models
+    max_r2 = pmax(linear_r2_7_a1, log_r2_7_a1, linear_r2_7_a0, log_r2_7_a0, linear_r2_7_a3, log_r2_7_a3,  na.rm = TRUE),
+    
+    # Determine the overall best model
+    overall_better_model_7 = case_when(
+      max_r2 == linear_r2_7_a1 ~ "Linear a1",
+      max_r2 == log_r2_7_a1 ~ "Logarithmic a1",
+      max_r2 == linear_r2_7_a0 ~ "Linear a0",
+      max_r2 == log_r2_7_a0 ~ "Logarithmic a0",
+      max_r2 == linear_r2_7_a3 ~ "Linear a3",
+      max_r2 == log_r2_7_a3 ~ "Logarithmic a3",
+      
+      TRUE ~ NA_character_  # Handle cases where all values are NA
+    )
+  ) %>%
+  select(-max_r2) 
+```
+
+```{r categorising anchor for scale 5}
+r2_7 <- r2_7 %>%
+  mutate(
+    max_linear_r2_7 = pmax(linear_r2_7_a1, linear_r2_7_a0, linear_r2_7_a3, na.rm = TRUE),
+    
+    # Determine the overall best model based on the highest linear of R²
+    anchor_7 = case_when(
+      max_linear_r2_7 == linear_r2_7_a1 ~ "a1",
+      max_linear_r2_7 == linear_r2_7_a0 ~ "a0",
+      max_linear_r2_7 == linear_r2_7_a3 ~ "a3",
+      TRUE ~ NA_character_  # Handle cases where all values are NA
+    )
+  )
+
+```
+
+```{r correct r squared for best anchor 7}
+r2_7 <- r2_7 %>%
+  mutate(
+    linear_r2_7 = case_when(
+      anchor_7 == "a1" ~ linear_r2_7_a1,
+      anchor_7 == "a3" ~ linear_r2_7_a3,
+      anchor_7 == "a0" ~ linear_r2_7_a0,),
+    log_r2_7 = case_when(
+      anchor_7 == "a1" ~ log_r2_7_a1,
+      anchor_7 == "a0" ~ log_r2_7_a0,
+      anchor_7 == "a3" ~ log_r2_7_a3,
+    ))
+```
+
+```{r scale length 7}
+likert_data_7 <- likert_data %>% filter( scale_size == 7)
+```
+
+```{r joining new df for scale length 7 to main df}
+merged_7df <- left_join(likert_data_7, r2_7, by  = "participant_id")
+```
+
+```{r formatting df}
+merged_7df <- merged_7df %>%
+  select(participant_id, age, gender, nationality, degree_subject, priming, scale_size.x, from_sona, question_valence,  anchor_7, correct_answer_a1m, correct_answer_a0m, correct_answer_a3m, response, overall_better_model_7)
+```
+
+```{r assign correct answer based on anchor}
+merged_7df <- merged_7df %>%
+  mutate(correct_answer = case_when(
+    anchor_7 %in% "a0" ~ correct_answer_a0m,
+    anchor_7 %in% "a1"~ correct_answer_a1m,
+    anchor_7 %in% "a3" ~ correct_answer_a3m))
+```
+
+##Scale Length 9
+
+```{r df for linear vs. log model scale length 9 a1, a0}
+r2_9 <- likert_data %>%
+  filter(likert_or_number == "likert", scale_size == 9) %>%
+  group_by(participant_id) %>%
+  do({
+  
+    # Fit model for a1
+    linear_model_9a1 <- lm(response ~ correct_answer_a1m, data = .)
+    log_model_9a1 <- lm(response ~ log(correct_answer_a1m), data = .)
+    
+     # Fit model for a0
+    linear_model_9a0 <- lm(response ~ correct_answer_a0m, data = .)
+    log_model_9a0 <- lm(response ~ log(correct_answer_a0m), data = .)
+    
+    #Formatting a3
+    transformed_a3m <- ifelse(.$correct_answer_a3m < 0, 
+                              -log(abs(.$correct_answer_a3m)), 
+                              .$correct_answer_a3m)
+    # Fit model for a3
+    linear_model_9a3 <- lm(response ~ correct_answer_a3m, data = .)
+    log_model_9a3 <- lm(response ~ transformed_a3m, data = .)
+    
+    # Extract R-squared values
+    data.frame(
+      scale_size = 9,
+      linear_r2_9_a1 = summary(linear_model_9a1)$r.squared,
+      log_r2_9_a1 = summary(log_model_9a1)$r.squared,
+      
+      linear_r2_9_a0 = summary(linear_model_9a0)$r.squared,
+      log_r2_9_a0 = summary(log_model_9a0)$r.squared,
+      
+      linear_r2_9_a3 = summary(linear_model_9a3)$r.squared,
+      log_r2_9_a3 = summary(log_model_9a3)$r.squared
+    )
+  }) %>%
+  ungroup()  # Remove grouping
+```
+
+```{r categorising model with highest r2 for scale length 9}
+r2_9 <- r2_9 %>%
+  mutate(
+    # Find the highest R² value across all models
+    max_r2 = pmax(linear_r2_9_a1, log_r2_9_a1, linear_r2_9_a0, log_r2_9_a0, linear_r2_9_a3, log_r2_9_a3,  na.rm = TRUE),
+    
+    # Determine the overall best model
+    overall_better_model_9 = case_when(
+      max_r2 == linear_r2_9_a1 ~ "Linear a1",
+      max_r2 == log_r2_9_a1 ~ "Logarithmic a1",
+      max_r2 == linear_r2_9_a0 ~ "Linear a0",
+      max_r2 == log_r2_9_a0 ~ "Logarithmic a0",
+      max_r2 == linear_r2_9_a3 ~ "Linear a3",
+      max_r2 == log_r2_9_a3 ~ "Logarithmic a3",
+      
+      TRUE ~ NA_character_  # Handle cases where all values are NA
+    )
+  ) %>%
+  select(-max_r2) 
+```
+
+```{r categorising anchor for scale 9}
+r2_9 <- r2_9 %>%
+  mutate(
+  
+    # Find the highest sum of R² across all models
+    max_linear_r2_9 = pmax(linear_r2_9_a1, linear_r2_9_a0, linear_r2_9_a3, na.rm = TRUE),
+    
+    # Determine the overall best model based on the highest linear of R²
+    anchor_9 = case_when(
+      max_linear_r2_9 == linear_r2_9_a1 ~ "a1",
+      max_linear_r2_9 == linear_r2_9_a0 ~ "a0",
+      max_linear_r2_9 == linear_r2_9_a3 ~ "a3",
+      TRUE ~ NA_character_  # Handle cases where all values are NA
+    )
+  )
+
+```
+
+```{r correct r squared for best anchor 9}
+r2_9 <- r2_9 %>%
+  mutate(
+    linear_r2_9 = case_when(
+      anchor_9 == "a1" ~ linear_r2_9_a1,
+      anchor_9 == "a3" ~ linear_r2_9_a3,
+      anchor_9 == "a0" ~ linear_r2_9_a0,),
+    log_r2_9 = case_when(
+      anchor_9 == "a1" ~ log_r2_9_a1,
+      anchor_9 == "a0" ~ log_r2_9_a0,
+      anchor_9 == "a3" ~ log_r2_9_a3,
+    ))
+```
+
+```{r scale length 9}
+likert_data_9 <- likert_data %>% filter( scale_size == 9)
+```
+
+```{r df w/ linear vs. log model scale length 9,7,9}
+merged_9df <- left_join(likert_data_9, r2_9, by  = "participant_id")
+```
+
+```{r formatting df}
+merged_9df <- merged_9df %>%
+  select(participant_id, age, gender, nationality, degree_subject, priming, scale_size.x, from_sona, question_valence,  anchor_9, correct_answer_a1m, correct_answer_a0m, correct_answer_a3m, response, overall_better_model_9)
+```
+
+```{r assign correct answer based on anchor}
+merged_9df <- merged_9df %>%
+  mutate(correct_answer = case_when(
+    anchor_9 %in% "a0" ~ correct_answer_a0m,
+    anchor_9 %in% "a1"~ correct_answer_a1m,
+    anchor_9 %in% "a3" ~ correct_answer_a3m))
+```
+
+##Chi Squares:
+
+Want to perform a chi-square to identify whether linearity changes across scale sizes and whether this is significant. 
+
+```{r df w/ linear vs. log model scale length 5,7,9}
+r2_data <- full_join(
+  select(r2_5, -scale_size),  # Remove scale_size column
+  select(r2_7, -scale_size),
+  by = "participant_id"
+) %>%
+  full_join(select(r2_9, -scale_size), by = "participant_id")
+```
+
+```{r only columns of interest}
+r2_data <- r2_data %>%
+  select(participant_id,linear_r2_5, anchor_5, overall_better_model_5,
+        linear_r2_7, anchor_7, overall_better_model_7,
+        linear_r2_9, anchor_9, overall_better_model_9)
+```
+
+```{r df w/ linear vs. log model scale length 5,7,9}
+merged_df <- left_join(likert_data, r2_data, by  = "participant_id")
+```
+
+```{r only relevant columns }
+merged_df_small <- merged_df %>%
+  select(participant_id, age, gender, nationality, degree_subject, priming, question_valence, scale_size, from_sona, linear_r2_5, anchor_5, linear_r2_7, anchor_7, linear_r2_9, anchor_9, overall_better_model_5, overall_better_model_7, overall_better_model_9)
+```
+
+```{r converting to long format}
+merged_df_small <- merged_df_small %>%
+  pivot_longer(cols = c(linear_r2_5, anchor_5, linear_r2_7, anchor_7, linear_r2_9, anchor_9,overall_better_model_5, overall_better_model_7, overall_better_model_9),
+               names_to = c(".value", "scale_length"),  # Extracts variable name & scale length
+               names_pattern = "(.*)_(\\d+)") %>%
+  distinct(participant_id, scale_length, .keep_all = TRUE)
+```
+
+```{r ensuring scale_size column correctly names}
+merged_df_small <- merged_df_small %>%
+  select(-scale_size) %>%  # Remove old scale_size column
+  rename(scale_size = scale_length)
+```
+
+```{r categorising participants: log vs. linear}
+merged_df_small <- merged_df_small %>%
+  mutate(
+    type_scale = case_when(
+      overall_better_model %in% c("Logarithmic a0", "Logarithmic a1","Logarithmic a3") ~ "Logarithmic",
+      overall_better_model %in% c("Linear a0", "Linear a1", "Linear a3") ~ "Linear",
+      TRUE ~ NA_character_  # Assigns NA if none of the conditions match
+    )
+  )
+```
+
+##Checking Linearity across scale sizes 
+
+```{r chi square for linear vs log and size scale}
+
+contingency_table_l <- table(merged_df_small$scale_size, merged_df_small$type_scale)
+
+rownames(contingency_table_l) <- c("Scale 5", "Scale 7", "Scale 9")
+colnames(contingency_table_l) <- c("Logarithmic", "Linear") 
+
+df_contingency_table_l <- as.data.frame(contingency_table_l)
+
+# Reshape data: Scale Length as rows, Participant Type as columns
+df_wide <- df_contingency_table_l %>%
+  pivot_wider(names_from = Var2, values_from = Freq, values_fill = list(Freq = 0))
+
+# Rename column for readability (if needed)
+colnames(df_wide)[1] <- "Scale Size"
+
+# Generate table
+df_wide %>%
+  gt() %>%
+  tab_header(
+    title = md("**Table 4: Count of Participant Response Representation Across Scale Sizes**")
+  )
+
+
+
+
+# Perform the Chi-Square Test
+chi_squared_result_l<-chisq.test(contingency_table_l)
+
+
+chi_squared_result_l
+
+```
+
+```{r plotting distance as a potential explanation for scale size effect}
+
+ggplot(likert_data, aes(x = correct_answer_a1m, y = response)) +
+  geom_point(color = "purple", size = 3) +  
+  labs(title = "Figure 5: Linear and Logarithmic Mapping of Likert Responses",
+       x = "Correct Response",
+       y = "Participant Likert Scale Response") +
+  theme_minimal() +
+  geom_smooth(method = "lm", formula = y ~ x, se = FALSE, color = "hotpink") +  # Linear regression
+  geom_smooth(method = "lm", formula = y ~ log(x), se = FALSE, color = "blue") +  # Logarithmic regression
+  geom_vline(xintercept = c(12, 14, 18), linetype = "dashed", color = "black")+
+  geom_text(aes(x = 12, y = max(likert_data$response), label = "5-point max"), 
+            angle = 90, vjust = -0.5, hjust = 7, color = "black") +  # Label for x = 12
+  geom_text(aes(x = 14, y = max(likert_data$response), label = "7-point max"), 
+            angle = 90, vjust = -0.5, hjust = 7, color = "black") +  # Label for x = 14
+  geom_text(aes(x = 18, y = max(likert_data$response), label = "9-point max"), 
+            angle = 90, vjust = -0.5, hjust = 7, color = "black")  # Label for x = 18
+
+#draw line at 12, highest 5 point correct answer
+#draw line at 14, highest 7 point correct answer
+#draw line at 18, highest 9 point correct answer
+```
+## Exploring Effect of scale size on anchor
+
+Whilst there wasn't a significant change in categorisation of participants as logarithmic or linear across scale sizes, we did find an effect on categorisation of participant anchors. 
+
+```{r graph anchor by scale size}
+# Transform data into long format for easier counting
+model_counts <- r2_data %>%
+  select(participant_id, anchor_5, anchor_7, anchor_9) %>%
+  pivot_longer(cols = starts_with("anchor_"), names_to = "Scale_Size", values_to = "Anchor") %>%
+  count(Scale_Size, Anchor)
+
+ggplot(model_counts, aes(x = Scale_Size, y = n, fill = Anchor)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  theme_minimal() +
+  labs(title = "Count of Anchor Across Scale Sizes",
+       x = "Scale Length",
+       y = "Count",
+       fill = "Anchor Type") +
+  scale_x_discrete(labels = c("anchor_5" = "Scale 5", 
+                              "anchor_7" = "Scale 7", 
+                              "anchor_9" = "Scale 9")) +
+  scale_fill_manual(values = c("darkblue", "hotpink", "red")) +
+  theme(text = element_text(size = 14))
+```
+
+```{r chi square for anchors and size scale}
+
+contingency_table_a <- table(merged_df_small$scale_size, merged_df_small$anchor)
+
+# Rename row and column names
+rownames(contingency_table_a) <- c("Scale 5", "Scale 7", "Scale 9")
+colnames(contingency_table_a) <- c("Anchor 0", "Anchor 1", " Negative Anchor")
+
+df_contingency_table_a <- as.data.frame(contingency_table_a)
+
+df_contingency_table_a <- df_contingency_table_a %>%
+  pivot_wider(names_from = Var2, values_from = Freq, values_fill = list(Freq = 0))
+
+# Rename column for readability (if needed)
+colnames(df_contingency_table_a)[1] <- "Scale Size"
+
+# Generate table
+df_contingency_table_a %>%
+  gt() %>%
+  tab_header(
+    title = md("**Table 5: Count of Participant Anchor Across Scale Sizes**")
+  )
+
+# Perform the Chi-Square Test
+chi_squared_result_a <- chisq.test(contingency_table_a)
+
+chi_squared_result_a
+
+```
+
+------------------------------------------------------------------------
+# Aiming to identify how participants actually represent the data 
+
+##Checking addition vs multiplication
+
+How is linearity impacted if calculations are simply addition rather than multiplication?
+
+```{r creating multiplier column for addition calculations}
+likert_data <- likert_data %>%
+
+  mutate(multipliera = case_when(
+    question_id == 1  ~ 2,
+    question_id == 2  ~ 3,
+    question_id == 3  ~ 1,
+    question_id == 4  ~ 3,
+    question_id == 5  ~ 2,
+    question_id == 6  ~ 2,
+    question_id == 7  ~ 6,
+    question_id == 8  ~ 2,
+    question_id == 9  ~ 3,
+    question_id == 10 ~ 4,
+    question_id == 11 ~ 3,
+    question_id == 12 ~ 1,
+    question_id == 13 ~ 3,
+    question_id == 14 ~ 2,
+    question_id == 15 ~ 1,
+    question_id == 16 ~ -3,
+    question_id == 17 ~ -2,
+    question_id == 18 ~ -2,
+    question_id == 19 ~ -4,
+    question_id == 20 ~ 1,
+    question_id == 21 ~ -3,
+  
+    question_id == "a" ~ 3,
+    question_id == "b" ~ 4,
+    question_id == "c" ~ 5,
+    question_id == "d" ~ 3,
+    question_id == "e" ~ 8,
+    question_id == "f" ~ 1/3,
+    question_id == "g" ~ 1,
+    question_id == "h" ~ 1/4,
+    question_id == "i" ~ 1/3,
+    question_id == "j" ~ 1,
+
+    TRUE ~ NA_real_  # Default case (if question_id is missing)
+
+  ))
+
+```
+
+```{r reducing size of likert dataset}
+
+likert_data<- likert_data%>%
+  select(-c(correct_answer_a1m, correct_answer_a0m, correct_answer_a3m, max_linear_r2))
+
+
+```
+
+```{r anchor 1 addition answers}
+
+likert_data <- likert_data %>%
+  mutate(correct_answer_adda1 = location + multipliera)
+
+```
+
+```{r anchor 0 addition answers}
+
+likert_data <- likert_data %>%
+  mutate(correct_answer_adda0 = ((location-1) + multipliera)+0.01)
+
+```
+
+```{r anchor -3 addition answers}
+
+likert_data <- likert_data %>%
+  mutate(correct_answer_adda3 = case_when(
+    likert_or_number == "likert" & scale_size == 5 ~ ((location - 3) + multipliera) + 0.001,
+    likert_or_number == "likert" & scale_size == 7 ~ ((location - 4) + multipliera) + 0.001,
+    likert_or_number == "likert" & scale_size == 9 ~ ((location - 5) + multipliera) + 0.001,
+    TRUE ~ NA_real_
+  ))
+
+```
+
+```{r generating r2 values for linear/log w/ a1, message=FALSE, error=FALSE}
+
+
+likert_data <- likert_data %>%
+  group_by(participant_id) %>%
+    do({
+    # Fit linear model
+    linear_model_a1a <- lm(response ~ correct_answer_adda1, data = .)
+    # Fit logarithmic model
+    log_model_a1a <- lm(response ~ log(correct_answer_adda1), data = .)
+    
+    # Calculate R-squared for both models
+    linear_r2_a1a <- summary(linear_model_a1a)$r.squared
+    log_r2_a1a <- summary(log_model_a1a)$r.squared
+    
+    # Return the dataset with the new column
+    cbind(., linear_r2_a1a = linear_r2_a1a, log_r2_a1a = log_r2_a1a)
+    
+    }) 
+```
+
+```{r generating r2 values for linear/log w/ a0, message=FALSE, error=FALSE}
+likert_data <- likert_data %>%
+  group_by(participant_id) %>%
+    do({
+    # Fit linear model
+    linear_model_a0a <- lm(response ~ correct_answer_adda0, data = .)
+    # Fit logarithmic model
+    log_model_a0a <- lm(response ~ log(correct_answer_adda0), data = .)
+    
+    # Calculate R-squared for both models
+    linear_r2_a0a <- summary(linear_model_a0a)$r.squared
+    log_r2_a0a <- summary(log_model_a0a)$r.squared
+    
+    # Return the dataset with the new column
+    cbind(., linear_r2_a0a = linear_r2_a0a, log_r2_a0a = log_r2_a0a)
+    
+    }) 
+```
+
+```{r generating r2 values for linear/log w/ a-3, message=FALSE, error=FALSE, warning=FALSE}
+
+
+likert_data <- likert_data %>%
+  group_by(participant_id) %>%
+    do({
+    # Fit linear model
+    linear_model_a3a <- lm(response ~ correct_answer_adda3, data = .)
+    # Fit logarithmic model
+    log_model_a3a <- lm(response ~ ifelse(correct_answer_adda3 < 0.001, 
+                                     -log(abs(correct_answer_adda3)), 
+                                     log(correct_answer_adda3)), 
+                   data = .)
+    
+    # Calculate R-squared for both models
+    linear_r2_a3a <- summary(linear_model_a3a)$r.squared
+    log_r2_a3a <- summary(log_model_a3a)$r.squared
+    
+    # Return the dataset with the new column
+    cbind(., linear_r2_a3a = linear_r2_a3a, log_r2_a3a = log_r2_a3a)
+  }) 
+```
+
+```{r categorising model with highest r2}
+likert_data <- likert_data %>%
+  mutate(
+    # Find the highest R² value across all models
+    max_r2add = pmax(linear_r2_a1a, log_r2_a1a, log_r2_a0a,linear_r2_a3a, log_r2_a3a, na.rm = TRUE), #not including linear anchor 0 as linear r2 values are the same for both anchor 0 and anchor 1 therefore maintains consistency
+    
+    # Determine the overall best model
+   better_modela = case_when(
+      max_r2add == linear_r2_a1a ~ "Linear a1",
+      max_r2add == log_r2_a1a ~ "Logarithmic a1",
+      max_r2add == log_r2_a0a ~ "Logarithmic a0",
+      max_r2add == linear_r2_a3a ~ "Linear a3",
+      max_r2add == log_r2_a3a ~ "Logarithmic a3",
+      TRUE ~ NA_character_  # Handle cases where all values are NA
+    )
+  )  
+```
+
+
+```{r categorising anchor}
+likert_data <- likert_data %>%
+  mutate(
+   max_linear_r2a = pmax(linear_r2_a1a, linear_r2_a3a, na.rm = TRUE),#not including anchor 0 as linear r2 values are the same for both anchor 0 and anchor 1 therefore maintains consistency
+    
+    # Determine the overall best model based on the highest sum of R²
+    anchora = case_when(
+      max_linear_r2a == linear_r2_a1a ~ "a1",
+      max_linear_r2a == linear_r2_a3a ~ "a3",
+      TRUE ~ NA_character_  # Handle cases where all values are NA
+    )
+  )
+
+```
+
+```{r assign correct answer based on anchor}
+likert_data <- likert_data %>%
+  mutate(correct_answer_a = case_when(
+    anchora %in% "a0" ~ correct_answer_adda0,
+    anchora %in% "a1"~ correct_answer_adda1, 
+    anchora %in% "a3"~ correct_answer_adda3))
+```
+
+```{r categorising participants: log vs. linear}
+likert_data <- likert_data %>%
+  mutate(
+    typeadd = case_when(
+      better_modela %in% c("Logarithmic a0", "Logarithmic a1","Logarithmic a3") ~ "Logarithmic",
+      better_modela %in% c("Linear a0", "Linear a1", "Linear a3") ~ "Linear",
+      TRUE ~ NA_character_  # Assigns NA if none of the conditions match
+    )
+  )
+```
+
+```{r add visualisation }
+linear_modeladda1 <- lm(response ~ correct_answer_adda1, data = likert_data)
+
+# Fit logarithmic model
+log_modeladda1 <- lm(response ~ log(correct_answer_adda1), data = likert_data)
+
+# Extract R-squared values
+linear_r2adda1 <- summary(linear_modeladda1)$r.squared
+log_r2adda1 <- summary(log_modeladda1)$r.squared
+
+addplot<-ggplot(likert_data, aes(x = correct_answer_adda1, y = response)) +
+  geom_point(color = "purple", size = 3) +  
+  labs(x = "Correct Addition Response (Anchor 1)",
+       y = "Participant Likert Scale Response") +
+  theme_minimal()+
+  ggtitle("b) Linear and Logarithmic Mapping of Likert Responses to Correct Addition Answers (Anchor 1)") +theme(plot.title = element_text(size = 10)) +
+  geom_smooth(method = "lm", formula = y ~ x, se = FALSE, color = "hotpink") +
+  # Add logarithmic regression line
+  geom_smooth(method = "lm", formula = y ~ log(x), se = FALSE, color = "blue") +
+  geom_smooth(method = "loess", se = FALSE, color = "black", linetype = "dashed") +
+  # Add R-squared values as annotations
+  annotate("text", x = 9, y = 1, label = paste("Linear R² = ", round(linear_r2adda1, 3)), color = "hotpink", size = 5) +
+  annotate("text", x = 9, y = 0, label = paste("Log R² = ", round(log_r2adda1, 3)), color = "blue", size = 5) 
+
+
+anchor1plot|addplot
+```
+```{r categorising addition vs multiplication}
+
+response_method <- likert_data %>%
+  group_by(participant_id) %>%
+  summarise(
+    max_r2 = max(max_r2, na.rm = TRUE), 
+    max_r2add = max(max_r2add, na.rm = TRUE)
+  ) %>%
+  mutate(Calculation_method = ifelse(max_r2 > max_r2add, "Multiplication", "Addition"))%>%
+  select(-max_r2, -max_r2add)
+
+
+
+```
+
+#check linearity in addition
+```{r chisquare addition/multiplication and binary linearity}
+
+likert_summary <- likert_data %>%
+  group_by(participant_id) %>%
+  slice(1) %>%
+  ungroup() 
+
+final_summary <- left_join(response_method,likert_summary, by = "participant_id")
+
+final_summary<- final_summary%>%
+  group_by(participant_id)%>%
+  mutate(best_model= ifelse(Calculation_method == "Addition", 
+                                        typeadd, type))
+
+
+contingency_table2 <- table(final_summary$best_model, final_summary$Calculation_method)
+chisq2 <- chisq.test(contingency_table2)
+chisq2
+
+df_contingency_table2 <- as.data.frame(contingency_table2)
+
+df_contingency_table2 <- df_contingency_table2 %>%
+  pivot_wider(names_from = Var1, values_from = Freq, values_fill = list(Freq = 0))
+
+colnames(df_contingency_table2)[1] <- "Calculation Method"
+
+df_contingency_table2 %>%
+  gt() %>%
+  tab_header(
+    title = md("**Table 6: Count of Participant Response Representation Across Calculation Methods**")
+  )
+
+```
